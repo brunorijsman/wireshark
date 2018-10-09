@@ -48,7 +48,8 @@ void proto_reg_handoff_thrift(void);
 #define THRIFT_T_UTF8 16
 #define THRIFT_T_UTF16 17
 
-static dissector_handle_t thrift_handle;
+static dissector_handle_t thrift_tcp_handle;
+static dissector_handle_t thrift_udp_handle;
 static guint thrift_tls_port = 0;
 
 static gboolean show_internal_thrift_fields = FALSE;
@@ -626,50 +627,111 @@ dissect_thrift_common(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void 
     return 0;
 }
 
+static int
+dissect_thrift_payload_struct(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void *data _U_)
+{
+    proto_item *type_pi;
+    int offset = 0;
+    int length = tvb_reported_length(tvb);
+    guint32 type;
+
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "THRIFT");
+    col_clear(pinfo->cinfo, COL_INFO);
+
+    while (offset < length){
+
+        /* Dissect field type */
+        type_pi = proto_tree_add_item_ret_uint(tree, hf_thrift_type, tvb, offset, 1, ENC_BIG_ENDIAN, &type);
+
+        /* When we reach the end of the struct (T_STOP) we have consumed the whole payload */
+        if (type == THRIFT_T_STOP){
+            return length;   /* TODO: Only actually consumed bytes, something like length - offset */
+        }
+
+        /* Dissect field id */
+        offset++;
+        if (offset + 1)
+        proto_tree_add_item(tree, hf_thrift_fid, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+
+        /* Dissect field value */
+        if (dissect_thrift_type(tvb, pinfo, tree, type_pi, type, &offset, length) < 0) {
+            break;
+        }
+    }
+    /* We did not encounter T_STOP */
+    pinfo->desegment_offset = 0;
+    pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
+    return 0;
+}
+
 /*
-Binary protocol Message, strict encoding, 12+ bytes:
-   +--------+--------+--------+--------+--------+--------+--------+--------+--------+...+--------+--------+--------+--------+--------+
-   |1vvvvvvv|vvvvvvvv|unused  |00000mmm| name length                       | name                | seq id                            |
-   +--------+--------+--------+--------+--------+--------+--------+--------+--------+...+--------+--------+--------+--------+--------+
-   '''
-
-   Where:
-
-   * 'vvvvvvvvvvvvvvv' is the version, an unsigned 15 bit number fixed to '1' (in binary: '000 0000 0000 0001').
-   The leading bit is '1'.
-   * 'unused' is an ignored byte.
-   * 'mmm' is the message type, an unsigned 3 bit integer. The 5 leading bits must be '0' as some clients (checked for
-   java in 0.9.1) take the whole byte.
-   * 'name length' is the byte length of the name field, a signed 32 bit integer encoded in network (big endian) order (must be >= 0).
-   * 'name' is the method name, a UTF-8 encoded string.
-   * 'seq id' is the sequence id, a signed 32 bit integer encoded in network (big endian) order.
-Compact protocol Message (4+ bytes):
-   +--------+--------+--------+...+--------+--------+...+--------+--------+...+--------+
-   |pppppppp|mmmvvvvv| seq id              | name length         | name                |
-   +--------+--------+--------+...+--------+--------+...+--------+--------+...+--------+
-
-
-   Where:
-
-   * 'pppppppp' is the protocol id, fixed to '1000 0010', 0x82.
-   3 * 'mmm' is the message type, an unsigned 3 bit integer.
-   * 'vvvvv' is the version, an unsigned 5 bit integer, fixed to '00001'.
-   * 'seq id' is the sequence id, a signed 32 bit integer encoded as a var int.
-   * 'name length' is the byte length of the name field, a signed 32 bit integer encoded as a var int (must be >= 0).
-   * 'name' is the method name to invoke, a UTF-8 encoded string.
-
-   Message types are encoded with the following values:
-
-   * _Call_: 1
-   * _Reply_: 2
-   * _Exception_: 3
-   * _Oneway_: 4
+static int
+dissect_thrift_rpc_request_struct(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
 */
+
+/*
+static int
+dissect_thrift_rpc_reply_struct(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
+*/
+
+/*
+static int
+dissect_thrift_binary_protocol_rpc_message(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
+*/
+
+/*
+static int
+dissect_thrift_compact_protocol_rpc_message(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
+*/
+
+/*
+static int
+dissect_thrift_framed_rpc_message(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
+*/
+
+/*
+static int
+dissect_thrift_unframed_rcp_message(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
+*/
+
+/*
+static int
+dissect_thrift_rpc_message(tvbuff_t* tvb _U_, packet_info* pinfo _U_, proto_tree* tree _U_, void *data _U_)
+{
+    return 0;
+}
+*/
+
+static int
+dissect_thrift_udp(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void *data)
+{
+    /* Each UDP packet contains one payload Thrift struct without framing length and without RCP header */
+    return dissect_thrift_payload_struct(tvb, pinfo, tree, data);
+}
+
 static int
 dissect_thrift_tcp(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, void *data)
 {
-    int str_len, length = tvb_reported_length(tvb);
-
+   int str_len, length = tvb_reported_length(tvb);    
 
     /* Need at least 13 bytes for a thrift message */
     if (length < 13) {
@@ -875,7 +937,9 @@ void proto_register_thrift(void) {
     expert_register_field_array(expert_thrift, ei, array_length(ei));
 
     /* register dissector */
-    thrift_handle = register_dissector("thrift", dissect_thrift_tcp, proto_thrift);
+    thrift_tcp_handle = register_dissector("thrift", dissect_thrift_tcp, proto_thrift);
+
+    thrift_udp_handle = create_dissector_handle(dissect_thrift_udp, proto_thrift);
 
     thrift_module = prefs_register_protocol(proto_thrift, proto_reg_handoff_thrift);
 
@@ -894,21 +958,20 @@ void proto_reg_handoff_thrift(void) {
     static dissector_handle_t thrift_http_handle;
     static gboolean thrift_initialized = FALSE;
 
-    thrift_http_handle = create_dissector_handle(dissect_thrift_heur, proto_thrift);
-
     if (!thrift_initialized) {
         thrift_initialized = TRUE;
         heur_dissector_add("tcp", dissect_thrift_heur, "Thrift over TCP", "thrift_tcp", proto_thrift, HEURISTIC_ENABLE);
+        dissector_add_uint("udp.port", 20002, thrift_udp_handle);   /* TODO: configure port */
+        thrift_http_handle = create_dissector_handle(dissect_thrift_heur, proto_thrift);
         dissector_add_string("media_type", "application/x-thrift", thrift_http_handle);
     } else {
-        ssl_dissector_delete(saved_thrift_tls_port, thrift_handle);
+        ssl_dissector_delete(saved_thrift_tls_port, thrift_tcp_handle);
     }
 
-    ssl_dissector_add(thrift_tls_port, thrift_handle);
+    ssl_dissector_add(thrift_tls_port, thrift_tcp_handle);
     saved_thrift_tls_port = thrift_tls_port;
-
-
 }
+
 /*
 * Editor modelines  -  https://www.wireshark.org/tools/modelines.html
 *

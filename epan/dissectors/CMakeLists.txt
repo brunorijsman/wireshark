@@ -1564,6 +1564,7 @@ set(DISSECTOR_SRC
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-rftap.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-rgmp.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-riemann.c
+	${CMAKE_CURRENT_SOURCE_DIR}/packet-rift.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-rip.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-ripng.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-rlc-lte.c

@@ -184,3 +184,7 @@ vgcore.*
 Wireshark.*
 .pytest_cache/
 test/*.log
+
+# Build directory #
+###################
+build/**
